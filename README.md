@@ -58,7 +58,7 @@ If you prefer a desktop app without Chrome:
 ### Setup
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/gesture-scroll-control.git
+git clone https://github.com/TANUJ-args/gesture-scroll-control.git
 cd gesture-scroll-control
 pip install -r requirements.txt
 python main.py
