@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Gesture Camera</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 8px;
+      min-width: 340px;
+    }
+    h3 { color: #00d4ff; margin-bottom: 6px; font-size: 14px; }
+    #webcam {
+      width: 320px;
+      height: 240px;
+      border-radius: 8px;
+      background: #000;
+      object-fit: cover;
+    }
+    #status {
+      margin-top: 6px;
+      padding: 6px 16px;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: bold;
+      background: #16213e;
+      text-align: center;
+      min-width: 200px;
+    }
+    #status.up { color: #00e676; }
+    #status.down { color: #ff5252; }
+    #status.none { color: #888; }
+    #error { color: #ff5252; margin-top: 8px; font-size: 12px; display: none; }
+  </style>
+</head>
+<body>
+  <h3>🤚 Gesture Camera Feed</h3>
+  <video id="webcam" autoplay playsinline muted></video>
+  <div id="status" class="none">Starting camera...</div>
+  <div id="error"></div>
+  <script src="camera.js" type="module"></script>
+</body>
+</html>

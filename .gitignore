@@ -20,3 +20,6 @@ desktop.ini
 .idea/
 *.swp
 *.swo
+
+#zip files
+*.zip

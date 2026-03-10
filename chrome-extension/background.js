@@ -1,71 +1,83 @@
 // background.js — Service worker for Gesture Scroll Control extension
 
-let offscreenCreated = false;
+let cameraWindowId = null;
 let scrollSpeed = 40;
 let scrollCooldown = 50;
 let pdfAuto = true;
 let running = false;
 let lastScrollTime = 0;
+let lastActiveTabId = null;
 
-// ---- Offscreen document management ----
+// ---- Camera window management ----
 
-async function ensureOffscreen() {
-  if (offscreenCreated) return;
+async function rememberActiveTab() {
   try {
-    await chrome.offscreen.createDocument({
-      url: "offscreen.html",
-      reasons: ["USER_MEDIA"],
-      justification: "Webcam access for hand gesture detection",
-    });
-    offscreenCreated = true;
-  } catch (e) {
-    // Already exists
-    if (e.message?.includes("already exists")) {
-      offscreenCreated = true;
-    } else {
-      console.error("Offscreen creation failed:", e);
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab?.id && !tab.url?.startsWith("chrome-extension://")) {
+      lastActiveTabId = tab.id;
     }
-  }
+  } catch (_) {}
 }
-
-async function closeOffscreen() {
-  if (!offscreenCreated) return;
-  try {
-    await chrome.offscreen.closeDocument();
-  } catch (_) {
-    // ignore
-  }
-  offscreenCreated = false;
-}
-
-// ---- Start / Stop ----
 
 async function start() {
+  await rememberActiveTab();
   running = true;
   chrome.storage.local.set({ running: true });
-  await ensureOffscreen();
-  chrome.runtime.sendMessage({ type: "start-camera" }).catch(() => {});
+
+  // Close old camera window if any
+  if (cameraWindowId) {
+    try { await chrome.windows.remove(cameraWindowId); } catch (_) {}
+    cameraWindowId = null;
+  }
+
+  // Open small camera window
+  const win = await chrome.windows.create({
+    url: chrome.runtime.getURL("camera.html"),
+    type: "popup",
+    width: 360,
+    height: 340,
+    top: 50,
+    left: 50,
+    focused: false,
+  });
+  cameraWindowId = win.id;
 }
 
 async function stop() {
   running = false;
   chrome.storage.local.set({ running: false });
-  chrome.runtime.sendMessage({ type: "stop-camera" }).catch(() => {});
-  // Small delay before closing offscreen so the stop message is delivered
-  setTimeout(() => closeOffscreen(), 500);
+  if (cameraWindowId) {
+    try { await chrome.windows.remove(cameraWindowId); } catch (_) {}
+    cameraWindowId = null;
+  }
 }
 
-// ---- Scroll the active tab ----
+// ---- Scroll the target tab ----
 
-async function scrollActiveTab(direction) {
+async function scrollTargetTab(direction) {
   const now = Date.now();
   if (now - lastScrollTime < scrollCooldown) return;
   lastScrollTime = now;
 
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.id) return;
-    chrome.tabs.sendMessage(tab.id, {
+    // Try the remembered tab first
+    let tabId = lastActiveTabId;
+
+    // If that's gone, find the current active non-extension tab
+    if (!tabId) {
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      const tab = tabs.find(t => !t.url?.startsWith("chrome-extension://"));
+      if (tab) tabId = tab.id;
+    }
+    if (!tabId) {
+      // Fallback: any active tab in any window
+      const tabs = await chrome.tabs.query({ active: true });
+      const tab = tabs.find(t => !t.url?.startsWith("chrome-extension://"));
+      if (tab) tabId = tab.id;
+    }
+
+    if (!tabId) return;
+    chrome.tabs.sendMessage(tabId, {
       type: "scroll",
       direction,
       amount: scrollSpeed,
@@ -92,11 +104,40 @@ chrome.runtime.onMessage.addListener((msg, _sender, _sendResponse) => {
     chrome.runtime.sendMessage({ type: "gesture", gesture: msg.gesture }).catch(() => {});
 
     if (msg.gesture === "scroll_up") {
-      scrollActiveTab("up");
+      scrollTargetTab("up");
     } else if (msg.gesture === "scroll_down") {
-      scrollActiveTab("down");
+      scrollTargetTab("down");
     }
   }
+
+  if (msg.type === "camera-closed" && running) {
+    running = false;
+    cameraWindowId = null;
+    chrome.storage.local.set({ running: false });
+    chrome.runtime.sendMessage({ type: "stopped" }).catch(() => {});
+  }
+});
+
+// Track when camera window is closed manually
+chrome.windows.onRemoved.addListener((windowId) => {
+  if (windowId === cameraWindowId) {
+    cameraWindowId = null;
+    if (running) {
+      running = false;
+      chrome.storage.local.set({ running: false });
+      chrome.runtime.sendMessage({ type: "stopped" }).catch(() => {});
+    }
+  }
+});
+
+// Track active tab changes so we always scroll the right page
+chrome.tabs.onActivated.addListener(async (info) => {
+  try {
+    const tab = await chrome.tabs.get(info.tabId);
+    if (tab && !tab.url?.startsWith("chrome-extension://")) {
+      lastActiveTabId = info.tabId;
+    }
+  } catch (_) {}
 });
 
 // ---- Auto-activate on PDF tabs ----
